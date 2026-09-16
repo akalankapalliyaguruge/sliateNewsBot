@@ -1,0 +1,37 @@
+{
+  "seen_urls": [
+    "https://www.sliate.ac.lk/news/event/sancharaka-udawa-2026",
+    "https://www.sliate.ac.lk/news/event/vesak-bhakthi-gee-program-2026",
+    "https://www.sliate.ac.lk/news/students/calling-applications-for-re-scrutiny-of-results",
+    "https://www.sliate.ac.lk/news/tender-notices/invitation-for-bids-2",
+    "https://www.sliate.ac.lk/vacancies/recruitment-of-visiting-lecturers-for-the-academic-year-2026-1st-semester-3"
+  ],
+  "telegram_messages": {
+    "https://www.sliate.ac.lk/news/tender-notices/invitation-for-bids-2": {
+      "message_id": 35,
+      "published_date": "2026-05-14",
+      "title": "INVITATION FOR BIDS"
+    },
+    "https://www.sliate.ac.lk/news/event/sancharaka-udawa-2026": {
+      "message_id": 36,
+      "published_date": "2026-06-08",
+      "title": "Sancharaka Udawa 2026"
+    },
+    "https://www.sliate.ac.lk/news/event/vesak-bhakthi-gee-program-2026": {
+      "message_id": 37,
+      "published_date": "2026-06-11",
+      "title": "Vesak Bhakthi Gee Program -2026"
+    },
+    "https://www.sliate.ac.lk/news/students/calling-applications-for-re-scrutiny-of-results": {
+      "message_id": 38,
+      "published_date": "2026-08-31",
+      "title": "Calling Applications for Re-scrutiny of Results"
+    },
+    "https://www.sliate.ac.lk/vacancies/recruitment-of-visiting-lecturers-for-the-academic-year-2026-1st-semester-3": {
+      "message_id": 39,
+      "published_date": "2026-09-14",
+      "title": "Recruitment of Visiting Lecturers for the Academic Year 2026 – 1st Semester"
+    }
+  },
+  "updated_at": 1789576073
+}
