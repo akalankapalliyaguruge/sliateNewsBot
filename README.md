@@ -1,4 +1,4 @@
-# sliateNewsBot
+# SliateNewsBot
 
 SLIATE News Updates
 
