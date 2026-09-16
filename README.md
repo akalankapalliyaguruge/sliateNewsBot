@@ -1,4 +1,4 @@
-# SliateNewsBot
+# Sliate News Bot
 
 SLIATE News Updates
 
@@ -7,3 +7,5 @@ Unofficial Telegram channel providing the latest news, student updates, and othe
 Source: www.sliate.ac.lk
 
 New updates are posted automatically after publication.
+
+Telegram Bot Channel: https://t.me/sliatenews
