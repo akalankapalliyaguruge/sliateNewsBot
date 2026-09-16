@@ -515,25 +515,12 @@ def main() -> None:
     validate_config()
 
     logging.info("SLIATE News Bot started.")
-    logging.info(
-        "Only posts published on/after %s will be sent.",
-        BACKFILL_FROM_DATE.isoformat(),
-    )
-    logging.info(
-        "Checking every %d seconds.",
-        CHECK_INTERVAL_SECONDS,
-    )
 
-    while True:
-        try:
-            run_check()
-        except KeyboardInterrupt:
-            logging.info("Bot stopped.")
-            break
-        except Exception:
-            logging.exception("Unexpected error while checking SLIATE.")
-
-        time.sleep(CHECK_INTERVAL_SECONDS)
+    try:
+        run_check()
+    except Exception:
+        logging.exception("Unexpected error while checking SLIATE.")
+        raise
 
 
 if __name__ == "__main__":
