@@ -1,3 +1,4 @@
+IATE link preview is disabled to hide unwanted author metadata.
 import html
 import json
 import logging
@@ -23,7 +24,8 @@ CATEGORY_PAGES = {
     "Common": f"{BASE_URL}/news/common",
     "Staff": f"{BASE_URL}/news/staff",
     "Events": f"{BASE_URL}/news/event",
-    "Tender Notices": f"{BASE_URL}/news/tender-notices/tender-notice",
+    "Tender Notices": f"{BASE_URL}/news/tender-notices",
+    "Tender Notices Legacy": f"{BASE_URL}/news/tender-notices/tender-notice",
     "Vacancies": f"{BASE_URL}/vacancies",
 }
 
@@ -32,7 +34,7 @@ BACKFILL_FROM_DATE = date(2026, 1, 1)
 
 CHECK_INTERVAL_SECONDS = 300
 REQUEST_TIMEOUT = 30
-MAX_LISTING_PAGES_PER_SECTION = 25
+MAX_LISTING_PAGES_PER_SECTION = 40
 
 STATE_FILE = Path(__file__).with_name("sliate_seen_news.json")
 
@@ -104,6 +106,7 @@ def fetch_soup(url: str) -> BeautifulSoup:
 
 def default_state() -> dict:
     return {
+        "backfill_completed": False,
         "seen_urls": [],
         "telegram_messages": {},
         "updated_at": None,
@@ -119,6 +122,7 @@ def load_state() -> dict:
 
         # Backward compatibility with the original state file.
         if isinstance(data, dict):
+            data.setdefault("backfill_completed", False)
             data.setdefault("seen_urls", [])
             data.setdefault("telegram_messages", {})
             data.setdefault("updated_at", None)
@@ -142,17 +146,30 @@ def save_state(state: dict) -> None:
 
 
 def parse_date_string(value: str) -> date | None:
+    if not value:
+        return None
+
     value = clean_text(value)
+    value = re.sub(
+        r"\b(\d{1,2})(st|nd|rd|th)\b",
+        r"\1",
+        value,
+        flags=re.IGNORECASE,
+    )
 
     formats = (
         "%d %B %Y",
         "%d %b %Y",
         "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+        "%A, %d %B %Y %H:%M",
+        "%A, %d %B %Y",
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S",
     )
 
-    # ISO values often contain milliseconds or Z.
     iso = value.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(iso).date()
@@ -165,16 +182,29 @@ def parse_date_string(value: str) -> date | None:
         except ValueError:
             continue
 
-    match = re.search(
+    month_match = re.search(
         rf"\b(\d{{1,2}}\s+(?:{MONTHS})\s+\d{{4}})\b",
         value,
         flags=re.IGNORECASE,
     )
-    if match:
-        try:
-            return datetime.strptime(match.group(1), "%d %B %Y").date()
-        except ValueError:
-            pass
+    if month_match:
+        for fmt in ("%d %B %Y", "%d %b %Y"):
+            try:
+                return datetime.strptime(month_match.group(1), fmt).date()
+            except ValueError:
+                continue
+
+    numeric_match = re.search(
+        r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b",
+        value,
+    )
+    if numeric_match:
+        candidate = numeric_match.group(1)
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except ValueError:
+                continue
 
     return None
 
@@ -206,7 +236,8 @@ def extract_published_date(soup: BeautifulSoup) -> date | None:
     page_text = soup.get_text(" ", strip=True)
 
     match = re.search(
-        rf"Published\s*:\s*(\d{{1,2}}\s+(?:{MONTHS})\s+\d{{4}})",
+        rf"Published\s*:\s*(?:[A-Za-z]+,\s*)?"
+        rf"(\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{MONTHS})\s+\d{{4}})",
         page_text,
         flags=re.IGNORECASE,
     )
@@ -228,6 +259,99 @@ def extract_published_date(soup: BeautifulSoup) -> date | None:
                 return parsed
 
     return None
+
+
+def extract_expiry_date(soup: BeautifulSoup) -> date | None:
+    """Find closing/deadline/expiry dates when the article provides one."""
+    page_text = clean_text(soup.get_text(" ", strip=True))
+
+    text_date = rf"\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{MONTHS})\s+\d{{4}}"
+    numeric_date = r"\d{1,2}[./-]\d{1,2}[./-]\d{4}"
+    any_date = rf"(?:{text_date}|{numeric_date})"
+
+    patterns = (
+        rf"(?:Application\s+)?Closing\s+Date\s*[:\-]?\s*({any_date})",
+        rf"Closing\s+Date\s+of\s+(?:the\s+)?Application\s*[:\-]?\s*({any_date})",
+        rf"(?:Application\s+)?Deadline\s*[:\-]?\s*({any_date})",
+        rf"Expiry\s+Date\s*[:\-]?\s*({any_date})",
+        rf"Expiration\s+Date\s*[:\-]?\s*({any_date})",
+        rf"(?:closing\s+date|deadline).{{0,120}}?(?:extended\s+)?(?:up\s+to|until|to)\s+({any_date})",
+        rf"(?:apply|submit|submitted|application).{{0,120}}?(?:on\s+or\s+before|before)\s+({any_date})",
+        rf"extended\s+(?:up\s+to|until)\s+({any_date})",
+    )
+
+    for pattern in patterns:
+        match = re.search(pattern, page_text, flags=re.IGNORECASE)
+        if match:
+            parsed = parse_date_string(match.group(1))
+            if parsed:
+                return parsed
+
+    return None
+
+
+def extract_category(soup: BeautifulSoup) -> str | None:
+    """Return category only if the article page itself exposes it."""
+    for selector in (
+        ".category-name",
+        "dd.category-name",
+        ".article-info .category-name",
+        "[itemprop='articleSection']",
+    ):
+        for tag in soup.select(selector):
+            value = clean_text(tag.get_text(" ", strip=True))
+            value = re.sub(
+                r"^Category\s*:\s*",
+                "",
+                value,
+                flags=re.IGNORECASE,
+            ).strip()
+            if value:
+                return value
+
+    page_text = clean_text(soup.get_text(" ", strip=True))
+    match = re.search(
+        r"Category\s*:\s*(.+?)(?=\s+Published\s*:|\s+Created\s*:|\s+Hits\s*:|\s+Print\b|\s+Email\b|$)",
+        page_text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        value = clean_text(match.group(1))
+        if value and len(value) <= 100:
+            return value
+
+    return None
+
+
+def article_content_text(soup: BeautifulSoup) -> str:
+    """Get the main article body without relying on sidebar/latest-news text."""
+    selectors = (
+        "[itemprop='articleBody']",
+        "article",
+        ".item-page",
+        ".com-content-article",
+        ".item",
+        "main",
+    )
+
+    for selector in selectors:
+        tag = soup.select_one(selector)
+        if tag:
+            value = clean_text(tag.get_text(" ", strip=True))
+            if value:
+                return value
+
+    return ""
+
+
+def page_mentions_2026(title: str, soup: BeautifulSoup) -> bool:
+    """
+    Initial-backfill fallback for a genuine 2026 notice that has no
+    Published metadata. Only inspect the article body/title, not sidebars.
+    """
+    body = article_content_text(soup)
+    sample = clean_text(f"{title} {body[:15000]}")
+    return bool(re.search(r"\b2026\b", sample))
 
 
 def is_pagination_link(current_seed: str, href: str) -> bool:
@@ -293,49 +417,78 @@ def extract_article_links(page_url: str, category: str) -> list[dict]:
     results = []
     seen_here = set()
 
-    # Main Joomla article-title links.
-    for anchor in soup.select(
-        "h1 a[href], h2 a[href], h3 a[href], "
-        ".page-header a[href], .item-title a[href]"
-    ):
+    listing_paths = {
+        urlparse(canonical_article_url(HOMEPAGE_URL)).path.rstrip("/"),
+        *[
+            urlparse(canonical_article_url(v)).path.rstrip("/")
+            for v in CATEGORY_PAGES.values()
+        ],
+    }
+
+    def add_anchor(anchor) -> None:
         title = clean_text(anchor.get_text(" ", strip=True))
         url = canonical_article_url(anchor.get("href", ""))
 
         if not title or not url:
-            continue
+            return
 
         path = urlparse(url).path.lower()
 
-        blocked = (
+        if any(x in path for x in (
             "/component/users",
             "/contact",
             "/search",
-        )
-        if any(x in path for x in blocked):
-            continue
+            "/administrator",
+        )):
+            return
 
-        # Don't treat section/listing pages themselves as articles.
-        listing_paths = {
-            urlparse(canonical_article_url(HOMEPAGE_URL)).path.rstrip("/"),
-            *[
-                urlparse(canonical_article_url(v)).path.rstrip("/")
-                for v in CATEGORY_PAGES.values()
-            ],
-        }
         if urlparse(url).path.rstrip("/") in listing_paths:
-            continue
+            return
+
+        # News articles used by SLIATE are normally under these routes.
+        if not path.startswith(("/news/", "/vacancies/", "/sliate/")):
+            return
 
         if url in seen_here:
-            continue
+            return
 
         seen_here.add(url)
         results.append(
             {
                 "title": title,
                 "url": url,
-                "category": category,
+                "source_category": category,
             }
         )
+
+    # Joomla news/blog/article links: titles, cards, read-more and more-articles.
+    for anchor in soup.select(
+        "h1 a[href], h2 a[href], h3 a[href], "
+        ".page-header a[href], .item-title a[href], "
+        ".items-leading a[href], .items-row a[href], "
+        ".items-more a[href], .blog a[href], .blog-featured a[href], "
+        ".readmore a[href], a.readmore[href], article a[href]"
+    ):
+        add_anchor(anchor)
+
+    # SLIATE's Latest News modules contain important undated /sliate/... posts.
+    for selector in (
+        "ul.latestnews a[href]",
+        ".latestnews a[href]",
+        "[class*='latestnews'] a[href]",
+        "[class*='latest-news'] a[href]",
+    ):
+        for anchor in soup.select(selector):
+            add_anchor(anchor)
+
+    # Fallback for a heading literally named Latest News.
+    for heading in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        if clean_text(heading.get_text(" ", strip=True)).lower() != "latest news":
+            continue
+        container = heading.find_next(["ul", "div"])
+        if container:
+            for anchor in container.select("a[href]"):
+                add_anchor(anchor)
 
     return results
 
@@ -356,11 +509,14 @@ def collect_article_candidates() -> list[dict]:
     return list(candidates.values())
 
 
-def scrape_2026_and_newer() -> list[dict]:
+def scrape_all_articles() -> list[dict]:
     candidates = collect_article_candidates()
-    accepted = []
+    inspected = []
 
-    logging.info("Checking published dates for %d candidate article(s)...", len(candidates))
+    logging.info(
+        "Inspecting metadata for %d candidate article(s)...",
+        len(candidates),
+    )
 
     for index, item in enumerate(candidates, start=1):
         try:
@@ -369,71 +525,115 @@ def scrape_2026_and_newer() -> list[dict]:
             logging.warning("Article failed %s: %s", item["url"], exc)
             continue
 
+        # Prefer the article's own heading when available.
+        heading = soup.select_one("article h1, .item-page h1, .page-header h1, h1")
+        if heading:
+            title = clean_text(heading.get_text(" ", strip=True))
+            if title:
+                item["title"] = title
+
         published = extract_published_date(soup)
+        expiry = extract_expiry_date(soup)
 
-        if not published:
-            logging.warning(
-                "Skipped because Published date could not be determined: %s",
-                item["title"],
-            )
-            continue
-
-        if published < BACKFILL_FROM_DATE:
-            continue
-
-        item["published_date"] = published.isoformat()
-        accepted.append(item)
+        item["published_date"] = published.isoformat() if published else None
+        item["expiry_date"] = expiry.isoformat() if expiry else None
+        item["category"] = extract_category(soup)
+        item["mentions_2026"] = page_mentions_2026(item["title"], soup)
+        inspected.append(item)
 
         if index % 10 == 0:
             logging.info(
-                "Date checked %d/%d article(s)",
+                "Inspected %d/%d article(s)",
                 index,
                 len(candidates),
             )
 
-    # First backfill should look natural in Telegram.
-    accepted.sort(
-        key=lambda x: (
-            x["published_date"],
-            x["title"].lower(),
-        )
-    )
+    return inspected
 
-    return accepted
+
+def backfill_eligible(item: dict) -> bool:
+    published = item.get("published_date")
+
+    if published:
+        try:
+            return (
+                datetime.strptime(published, "%Y-%m-%d").date()
+                >= BACKFILL_FROM_DATE
+            )
+        except ValueError:
+            return False
+
+    # Some current SLIATE notices have no Published field. For the initial
+    # 2026 rebuild, include them only when the page clearly refers to 2026.
+    return bool(item.get("mentions_2026"))
+
+
+def sort_items(items: list[dict]) -> list[dict]:
+    # Dated posts oldest -> newest. Undated 2026 notices come afterwards.
+    return sorted(
+        items,
+        key=lambda item: (
+            item.get("published_date") is None,
+            item.get("published_date") or "9999-12-31",
+            item.get("title", "").lower(),
+        ),
+    )
 
 
 def send_to_telegram(item: dict) -> int | None:
     telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     title = html.escape(item["title"])
-    category = html.escape(item["category"])
     article_url = html.escape(item["url"], quote=True)
 
-    try:
-        published_text = datetime.strptime(
-            item["published_date"], "%Y-%m-%d"
-        ).strftime("%d %B %Y")
-    except (KeyError, ValueError):
-        published_text = item.get("published_date", "Unknown")
+    details = []
+
+    published = item.get("published_date")
+    if published:
+        try:
+            published_text = datetime.strptime(
+                published, "%Y-%m-%d"
+            ).strftime("%d %B %Y")
+        except ValueError:
+            published_text = published
+        details.append(f"Published: {html.escape(published_text)}")
+
+    expiry = item.get("expiry_date")
+    if expiry:
+        try:
+            expiry_text = datetime.strptime(
+                expiry, "%Y-%m-%d"
+            ).strftime("%d %B %Y")
+        except ValueError:
+            expiry_text = expiry
+        details.append(f"Expired: {html.escape(expiry_text)}")
+
+    category = item.get("category")
+    if category:
+        details.append(f"Category: {html.escape(category)}")
 
     message = (
-        " <b>SLIATE NEWS</b>\n\n"
+        "<b>SLIATE NEWS</b>\n\n"
         f"<b>{title}</b>\n\n"
-        f" Published: {html.escape(published_text)}\n"
-        f" Category: {category}\n\n"
-        f' <a href="{article_url}">Read full news on SLIATE</a>\n\n'
-        " Sri Lanka Institute of Advanced Technological Education"
+    )
+
+    if details:
+        message += "\n".join(details) + "\n\n"
+
+    message += (
+        f'<a href="{article_url}">Read full news on SLIATE</a>\n\n'
+        "Sri Lanka Institute of Advanced Technological Education"
     )
 
     payload = {
         "chat_id": CHANNEL_ID,
         "text": message,
         "parse_mode": "HTML",
+        # Keep preview disabled so SLIATE's author metadata (dilaxshi) is hidden.
         "disable_web_page_preview": True,
     }
 
     try:
-        # Telegram remains fully SSL-verified.
         response = session.post(
             telegram_url,
             data=payload,
@@ -457,45 +657,82 @@ def send_to_telegram(item: dict) -> int | None:
 
 
 def run_check() -> None:
-    logging.info(
-        "Checking SLIATE for posts published from %s onward...",
-        BACKFILL_FROM_DATE.isoformat(),
-    )
+    state = load_state()
+    seen = set(state.get("seen_urls", []))
+    first_backfill = not state.get("backfill_completed", False)
 
-    items = scrape_2026_and_newer()
+    if first_backfill:
+        logging.info(
+            "Initial backfill: sending SLIATE posts from %s onward.",
+            BACKFILL_FROM_DATE.isoformat(),
+        )
+    else:
+        logging.info(
+            "Normal mode: every newly discovered SLIATE news article URL will be sent."
+        )
+
+    items = scrape_all_articles()
 
     if not items:
         logging.warning(
-            "No qualifying SLIATE posts detected. State was not changed."
+            "No SLIATE article items detected. State was not changed."
         )
         return
 
-    state = load_state()
-    seen = set(state.get("seen_urls", []))
+    if first_backfill:
+        # Baseline all currently visible pre-2026 / non-2026 archive items as
+        # already known, so the next scheduled run does not suddenly send old
+        # archive content.
+        for item in items:
+            if not backfill_eligible(item):
+                seen.add(item["url"])
+
+        new_items = [
+            item for item in items
+            if backfill_eligible(item) and item["url"] not in seen
+        ]
+    else:
+        # After the initial rebuild, URL novelty is the rule. Published date,
+        # expiry date and category are optional and never block a new post.
+        new_items = [
+            item for item in items
+            if item["url"] not in seen
+        ]
+
+    new_items = sort_items(new_items)
+
+    logging.info(
+        "Found %d unsent qualifying article(s).",
+        len(new_items),
+    )
+
     telegram_messages = state.setdefault("telegram_messages", {})
-
-    new_items = [item for item in items if item["url"] not in seen]
-
-    if not new_items:
-        logging.info("No new qualifying SLIATE news.")
-        return
-
-    logging.info("Found %d unsent qualifying article(s).", len(new_items))
 
     for item in new_items:
         message_id = send_to_telegram(item)
 
-        if message_id is not None:
-            seen.add(item["url"])
-            telegram_messages[item["url"]] = {
-                "message_id": message_id,
-                "published_date": item.get("published_date"),
-                "title": item.get("title"),
-            }
-            state["seen_urls"] = sorted(seen)
-            save_state(state)
+        if message_id is None:
+            continue
 
+        seen.add(item["url"])
+        telegram_messages[item["url"]] = {
+            "message_id": message_id,
+            "published_date": item.get("published_date"),
+            "expiry_date": item.get("expiry_date"),
+            "category": item.get("category"),
+            "title": item.get("title"),
+        }
+        state["seen_urls"] = sorted(seen)
+        save_state(state)
         time.sleep(1.2)
+
+    if first_backfill:
+        state["backfill_completed"] = True
+        state["seen_urls"] = sorted(seen)
+        save_state(state)
+        logging.info(
+            "2026 backfill completed. Future runs will send every new SLIATE news URL."
+        )
 
 
 def validate_config() -> None:
