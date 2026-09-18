@@ -1,4 +1,3 @@
-IATE link preview is disabled to hide unwanted author metadata.
 import html
 import json
 import logging
