@@ -1,6 +1,6 @@
 {
   "backfill_completed": true,
-  "last_full_scan": 1790189925,
+  "last_full_scan": 1790276873,
   "seen_urls": [
     "https://www.sliate.ac.lk/news/common/class-room-capacity-of-ati-ati-sections-of-sliate-2019",
     "https://www.sliate.ac.lk/news/common/converting-ati-sections-to-ati",
@@ -152,5 +152,5 @@
       "category": null
     }
   },
-  "updated_at": 1790262473
+  "updated_at": 1790276873
 }
