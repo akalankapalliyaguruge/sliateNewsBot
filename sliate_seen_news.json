@@ -71,7 +71,8 @@
     "https://www.sliate.ac.lk/sliate/timetable-2nd-semester-examination-2025",
     "https://www.sliate.ac.lk/sliate/vaani-vizha-2023-organized-ati-dehiwala",
     "https://www.sliate.ac.lk/vacancies/applications-are-invited-for-the-post-of-director-ii-acting-at-the-advanced-technological-institute-ratnapura",
-    "https://www.sliate.ac.lk/vacancies/recruitment-of-visiting-lecturers-for-the-academic-year-2026-1st-semester-3"
+    "https://www.sliate.ac.lk/vacancies/recruitment-of-visiting-lecturers-for-the-academic-year-2026-1st-semester-3",
+    "https://www.sliate.ac.lk/vacancies/vacancies-ddg-admin-fin-5"
   ],
   "telegram_messages": {
     "https://www.sliate.ac.lk/news/tender-notices/invitation-for-bids-2": {
@@ -150,7 +151,14 @@
       "published_date": "2026-09-14",
       "expiry_date": "2026-09-27",
       "category": null
+    },
+    "https://www.sliate.ac.lk/vacancies/vacancies-ddg-admin-fin-5": {
+      "message_id": 62,
+      "title": "VACANCIES - DDG (ADMIN & FIN)",
+      "published_date": "2026-11-08",
+      "expiry_date": null,
+      "category": null
     }
   },
-  "updated_at": 1794195915
+  "updated_at": 1794226295
 }
