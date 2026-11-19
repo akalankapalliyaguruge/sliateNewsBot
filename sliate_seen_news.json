@@ -44,6 +44,7 @@
     "https://www.sliate.ac.lk/news/students/mahapola-application-form-and-instruction-form-for-the-new-intake",
     "https://www.sliate.ac.lk/news/students/mahapola-application-instruction-form-for-academic-year-2022-2023",
     "https://www.sliate.ac.lk/news/students/mahapola-scholarship-application-academic-year-2025",
+    "https://www.sliate.ac.lk/news/students/mahapola-scholarship-application-academic-year-2026",
     "https://www.sliate.ac.lk/news/students/procedure-for-obtaining-the-nvq-level-6-certificate-from-tvec",
     "https://www.sliate.ac.lk/news/students/re-scrutiny-of-2017-2nd-semester-examination-answer-scripts",
     "https://www.sliate.ac.lk/news/students/sliate-student-handbook-2025-5th-edition",
@@ -158,7 +159,14 @@
       "published_date": "2026-11-08",
       "expiry_date": null,
       "category": null
+    },
+    "https://www.sliate.ac.lk/news/students/mahapola-scholarship-application-academic-year-2026": {
+      "message_id": 63,
+      "title": "Mahapola Scholarship Application - Academic Year 2026",
+      "published_date": "2026-11-19",
+      "expiry_date": null,
+      "category": "Students"
     }
   },
-  "updated_at": 1795062519
+  "updated_at": 1795095997
 }
